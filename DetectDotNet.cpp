@@ -4,14 +4,12 @@
 // In case the machine this is compiled on does not have the most recent platform SDK
 // with these values defined, define them here
 #ifndef SM_TABLETPC
-	#define SM_TABLETPC		86
+	#define SM_TABLETPC     86
 #endif
 
 #ifndef SM_MEDIACENTER
-	#define SM_MEDIACENTER	87
+	#define SM_MEDIACENTER  87
 #endif
-
-#define CountOf(x) sizeof(x)/sizeof(*x)
 
 // Constants that represent registry key names and value names
 // to use for detection
@@ -56,8 +54,6 @@ const int g_iNetfx40VersionRevision = 0;
 const int g_dwNetfx45ReleaseVersion = 378389;
 
 // Version information for final release of .NET Framework 4.5.1
-// The deployment guide says to use value 378758, but the version of the 
-// .NET Framework 4.5.1 in Windows 8.1 has value 378675, so we have to use that instead
 const int g_dwNetfx451ReleaseVersion = 378675;
 
 // Version information for final release of .NET Framework 4.5.2
@@ -66,18 +62,16 @@ const int g_dwNetfx452ReleaseVersion = 379893;
 // Version information for final release of .NET Framework 4.6
 const int g_dwNetfx46ReleaseVersion = 393295;
 
-// Constants for known .NET Framework versions used with the GetRequestedRuntimeInfo API
-const TCHAR *g_szNetfx10VersionString = _T("v1.0.3705");
-const TCHAR *g_szNetfx11VersionString = _T("v1.1.4322");
-const TCHAR *g_szNetfx20VersionString = _T("v2.0.50727");
-const TCHAR *g_szNetfx40VersionString = _T("v4.0.30319");
+// Version information for final release of .NET Framework 4.6.1
+const int g_dwNetfx461ReleaseVersion = 394254;
+
+// Version information for final release of .NET Framework 4.6.2
+const int g_dwNetfx462ReleaseVersion = 394802;
 
 // Function prototypes
 bool CheckNetfxBuildNumber(const TCHAR*, const TCHAR*, const int, const int, const int, const int);
-bool CheckNetfxVersionUsingMscoree(const TCHAR*);
 int GetNetfx10SPLevel();
 int GetNetfxSPLevel(const TCHAR*, const TCHAR*);
-DWORD GetProcessorArchitectureFlag();
 bool IsCurrentOSTabletMedCenter();
 bool IsNetfx10Installed();
 bool IsNetfx11Installed();
@@ -90,351 +84,17 @@ bool IsNetfx45Installed();
 bool IsNetfx451Installed();
 bool IsNetfx452Installed();
 bool IsNetfx46Installed();
+bool IsNetfx461Installed();
+bool IsNetfx462Installed();
 bool RegistryGetValue(HKEY, const TCHAR*, const TCHAR*, DWORD, LPBYTE, DWORD);
 
-
 /******************************************************************
-Function Name:  CheckNetfxVersionUsingMscoree
-Description:    Uses the logic described in the sample code at
-                http://msdn2.microsoft.com/library/ydh6b3yb.aspx
-                to load mscoree.dll and call its APIs to determine
-                whether or not a specific version of the .NET
-                Framework is installed on the system
-Inputs:         pszNetfxVersionToCheck - version to look for
-Results:        true if the requested version is installed
-                false otherwise
-******************************************************************/
-bool CheckNetfxVersionUsingMscoree(const TCHAR *pszNetfxVersionToCheck)
-{
-	bool bFoundRequestedNetfxVersion = false;
-	HRESULT hr = S_OK;
-
-	// Check input parameter
-	if (NULL == pszNetfxVersionToCheck)
-		return false;
-
-	HMODULE hmodMscoree = LoadLibraryEx(_T("mscoree.dll"), NULL, 0);
-	if (NULL != hmodMscoree)
-	{
-		typedef HRESULT (STDAPICALLTYPE *GETCORVERSION)(LPWSTR szBuffer, DWORD cchBuffer, DWORD* dwLength);
-		GETCORVERSION pfnGETCORVERSION = (GETCORVERSION)GetProcAddress(hmodMscoree, "GetCORVersion");
-
-		// Some OSs shipped with a placeholder copy of mscoree.dll. The existence of mscoree.dll
-		// therefore does NOT mean that a version of the .NET Framework is installed.
-		// If this copy of mscoree.dll does not have an exported function named GetCORVersion
-		// then we know it is a placeholder DLL.
-		if (NULL == pfnGETCORVERSION)
-			goto Finish;
-
-		typedef HRESULT (STDAPICALLTYPE *CORBINDTORUNTIME)(LPCWSTR pwszVersion, LPCWSTR pwszBuildFlavor, REFCLSID rclsid, REFIID riid, LPVOID FAR *ppv);
-		CORBINDTORUNTIME pfnCORBINDTORUNTIME = (CORBINDTORUNTIME)GetProcAddress(hmodMscoree, "CorBindToRuntime");
-
-		typedef HRESULT (STDAPICALLTYPE *GETREQUESTEDRUNTIMEINFO)(LPCWSTR pExe, LPCWSTR pwszVersion, LPCWSTR pConfigurationFile, DWORD startupFlags, DWORD runtimeInfoFlags, LPWSTR pDirectory, DWORD dwDirectory, DWORD *dwDirectoryLength, LPWSTR pVersion, DWORD cchBuffer, DWORD* dwlength);
-		GETREQUESTEDRUNTIMEINFO pfnGETREQUESTEDRUNTIMEINFO = (GETREQUESTEDRUNTIMEINFO)GetProcAddress(hmodMscoree, "GetRequestedRuntimeInfo");
-
-		if (NULL != pfnCORBINDTORUNTIME)
-		{
-			TCHAR szRetrievedVersion[50];
-			DWORD dwLength = CountOf(szRetrievedVersion);
-
-			if (NULL == pfnGETREQUESTEDRUNTIMEINFO)
-			{
-				// Having CorBindToRuntimeHost but not having GetRequestedRuntimeInfo means that
-				// this machine contains no higher than .NET Framework 1.0, but the only way to
-				// 100% guarantee that the .NET Framework 1.0 is installed is to call a function
-				// to exercise its functionality
-				if (0 == _tcscmp(pszNetfxVersionToCheck, g_szNetfx10VersionString))
-				{
-					hr = pfnGETCORVERSION(szRetrievedVersion, dwLength, &dwLength);
-
-					if (SUCCEEDED(hr))
-					{
-						if (0 == _tcscmp(szRetrievedVersion, g_szNetfx10VersionString))
-							bFoundRequestedNetfxVersion = true;
-					}
-
-					goto Finish;
-				}
-			}
-
-			// Set error mode to prevent the .NET Framework from displaying
-			// unfriendly error dialogs
-			UINT uOldErrorMode = SetErrorMode(SEM_FAILCRITICALERRORS);
-
-			TCHAR szDirectory[MAX_PATH];
-			DWORD dwDirectoryLength = 0;
-			DWORD dwRuntimeInfoFlags = RUNTIME_INFO_DONT_RETURN_DIRECTORY | GetProcessorArchitectureFlag();
-
-			// Check for the requested .NET Framework version
-			hr = pfnGETREQUESTEDRUNTIMEINFO(NULL, pszNetfxVersionToCheck, NULL, STARTUP_LOADER_OPTIMIZATION_MULTI_DOMAIN_HOST, NULL, szDirectory, CountOf(szDirectory), &dwDirectoryLength, szRetrievedVersion, CountOf(szRetrievedVersion), &dwLength);
-
-			if (SUCCEEDED(hr))
-				bFoundRequestedNetfxVersion = true;
-
-			// Restore the previous error mode
-			SetErrorMode(uOldErrorMode);
-		}
-	}
-
-Finish:
-	if (hmodMscoree)
-	{
-		FreeLibrary(hmodMscoree);
-	}
-
-	return bFoundRequestedNetfxVersion;
-}
-
-
-/******************************************************************
-Function Name:  GetNetfx10SPLevel
-Description:    Uses the detection method recommended at
-                http://blogs.msdn.com/astebner/archive/2004/09/14/229802.aspx
-                to determine what service pack for the 
-                .NET Framework 1.0 is installed on the machine
-Inputs:         NONE
-Results:        integer representing SP level for .NET Framework 1.0
-******************************************************************/
-int GetNetfx10SPLevel()
-{
-	TCHAR szRegValue[MAX_PATH];
-	TCHAR *pszSPLevel = NULL;
-	int iRetValue = -1;
-	bool bRegistryRetVal = false;
-
-	// Need to detect what OS we are running on so we know what
-	// registry key to use to look up the SP level
-	if (IsCurrentOSTabletMedCenter())
-		bRegistryRetVal = RegistryGetValue(HKEY_LOCAL_MACHINE, g_szNetfx10SPxOCMRegKeyName, g_szNetfxStandardVersionRegValueName, NULL, (LPBYTE)szRegValue, MAX_PATH);
-	else
-		bRegistryRetVal = RegistryGetValue(HKEY_LOCAL_MACHINE, g_szNetfx10SPxMSIRegKeyName, g_szNetfxStandardVersionRegValueName, NULL, (LPBYTE)szRegValue, MAX_PATH);
-
-	if (bRegistryRetVal)
-	{
-		// This registry value should be of the format
-		// #,#,#####,# where the last # is the SP level
-		// Try to parse off the last # here
-		pszSPLevel = _tcsrchr(szRegValue, _T(','));
-		if (NULL != pszSPLevel)
-		{
-			// Increment the pointer to skip the comma
-			pszSPLevel++;
-
-			// Convert the remaining value to an integer
-			iRetValue = _tstoi(pszSPLevel);
-		}
-	}
-
-	return iRetValue;
-}
-
-
-/******************************************************************
-Function Name:	GetNetfxSPLevel
-Description:	Determine what service pack is installed for a 
-                version of the .NET Framework using registry
-				based detection methods documented in the 
-				.NET Framework deployment guides.
-Inputs:         pszNetfxRegKeyName - registry key name to use for detection
-				pszNetfxRegValueName - registry value to use for detection
-Results:        integer representing SP level for .NET Framework
-******************************************************************/
-int GetNetfxSPLevel(const TCHAR *pszNetfxRegKeyName, const TCHAR *pszNetfxRegValueName)
-{
-	DWORD dwRegValue=0;
-
-	if (RegistryGetValue(HKEY_LOCAL_MACHINE, pszNetfxRegKeyName, pszNetfxRegValueName, NULL, (LPBYTE)&dwRegValue, sizeof(DWORD)))
-	{
-		return (int)dwRegValue;
-	}
-
-	// We can only get here if the .NET Framework is not
-	// installed or there was some kind of error retrieving
-	// the data from the registry
-	return -1;
-}
-
-
-/******************************************************************
-Function Name:  GetProcessorArchitectureFlag
-Description:    Determine the processor architecture of the
-                system (x86, x64, ia64)
-Inputs:         NONE
-Results:        DWORD processor architecture flag
-******************************************************************/
-DWORD GetProcessorArchitectureFlag()
-{
-	HMODULE hmodKernel32 = NULL;
-	typedef void (WINAPI *PFnGetNativeSystemInfo) (LPSYSTEM_INFO);
-	PFnGetNativeSystemInfo pfnGetNativeSystemInfo;
-
-	SYSTEM_INFO sSystemInfo;
-	memset(&sSystemInfo, 0, sizeof(sSystemInfo));
-
-	bool bRetrievedSystemInfo = false;
-
-	// Attempt to load kernel32.dll
-	hmodKernel32 = LoadLibrary(_T("Kernel32.dll"));
-	if (NULL != hmodKernel32)
-	{
-		// If the DLL loaded correctly, get the proc address for GetNativeSystemInfo
-		pfnGetNativeSystemInfo = (PFnGetNativeSystemInfo) GetProcAddress(hmodKernel32, "GetNativeSystemInfo");
-		if (NULL != pfnGetNativeSystemInfo)
-		{
-			// Call GetNativeSystemInfo if it exists
-			(*pfnGetNativeSystemInfo)(&sSystemInfo);
-			bRetrievedSystemInfo = true;
-		}
-		FreeLibrary(hmodKernel32);
-	}
-
-	if (!bRetrievedSystemInfo)
-	{
-		// Fallback to calling GetSystemInfo if the above failed
-		GetSystemInfo(&sSystemInfo);
-		bRetrievedSystemInfo = true;
-	}
-
-	if (bRetrievedSystemInfo)
-	{
-		switch (sSystemInfo.wProcessorArchitecture) 
-		{
-			case PROCESSOR_ARCHITECTURE_INTEL:
-				return RUNTIME_INFO_REQUEST_X86;
-			case PROCESSOR_ARCHITECTURE_IA64:
-				return RUNTIME_INFO_REQUEST_IA64;
-			case PROCESSOR_ARCHITECTURE_AMD64:
-				return RUNTIME_INFO_REQUEST_AMD64;
-			default:
-				return 0;
-		}
-	}
-
-	return 0;
-}
-
-
-/******************************************************************
-Function Name:	CheckNetfxBuildNumber
-Description:	Retrieves the .NET Framework build number from
-                the registry and validates that it is not a pre-release
-                version number
-Inputs:         NONE
-Results:        true if the build number in the registry is greater
-				than or equal to the passed in version; false otherwise
-******************************************************************/
-bool CheckNetfxBuildNumber(const TCHAR *pszNetfxRegKeyName, const TCHAR *pszNetfxRegKeyValue, const int iRequestedVersionMajor, const int iRequestedVersionMinor, const int iRequestedVersionBuild, const int iRequestedVersionRevision)
-{
-	TCHAR szRegValue[MAX_PATH];
-	TCHAR *pszToken = NULL;
-	TCHAR *pszNextToken = NULL;
-	int iVersionPartCounter = 0;
-	int iRegistryVersionMajor = 0;
-	int iRegistryVersionMinor = 0;
-	int iRegistryVersionBuild = 0;
-	int iRegistryVersionRevision = 0;
-	bool bRegistryRetVal = false;
-
-	// Attempt to retrieve the build number registry value
-	bRegistryRetVal = RegistryGetValue(HKEY_LOCAL_MACHINE, pszNetfxRegKeyName, pszNetfxRegKeyValue, NULL, (LPBYTE)szRegValue, MAX_PATH);
-
-	if (bRegistryRetVal)
-	{
-		// This registry value should be of the format
-		// #.#.#####.##.  Try to parse the 4 parts of
-		// the version here
-		pszToken = _tcstok_s(szRegValue, _T("."), &pszNextToken);
-		while (NULL != pszToken)
-		{
-			iVersionPartCounter++;
-
-			switch (iVersionPartCounter)
-			{
-			case 1:
-				// Convert the major version value to an integer
-				iRegistryVersionMajor = _tstoi(pszToken);
-				break;
-			case 2:
-				// Convert the minor version value to an integer
-				iRegistryVersionMinor = _tstoi(pszToken);
-				break;
-			case 3:
-				// Convert the build number value to an integer
-				iRegistryVersionBuild = _tstoi(pszToken);
-				break;
-			case 4:
-				// Convert the revision number value to an integer
-				iRegistryVersionRevision = _tstoi(pszToken);
-				break;
-			default:
-				break;
-
-			}
-
-			// Get the next part of the version number
-			pszToken = _tcstok_s(NULL, _T("."), &pszNextToken);
-		}
-	}
-
-	// Compare the version number retrieved from the registry with
-	// the version number of the final release of the .NET Framework
-	// that we are checking
-	if (iRegistryVersionMajor > iRequestedVersionMajor)
-	{
-		return true;
-	}
-	else if (iRegistryVersionMajor == iRequestedVersionMajor)
-	{
-		if (iRegistryVersionMinor > iRequestedVersionMinor)
-		{
-			return true;
-		}
-		else if (iRegistryVersionMinor == iRequestedVersionMinor)
-		{
-			if (iRegistryVersionBuild > iRequestedVersionBuild)
-			{
-				return true;
-			}
-			else if (iRegistryVersionBuild == iRequestedVersionBuild)
-			{
-				if (iRegistryVersionRevision >= iRequestedVersionRevision)
-				{
-					return true;
-				}
-			}
-		}
-	}
-
-	// If we get here, the version in the registry must be less than the
-	// version of the final release of the .NET Framework we are checking,
-	// so return false
-	return false;
-}
-
-
-/******************************************************************
-Function Name:  IsCurrentOSTabletMedCenter
-Description:    Determine if the current OS is a Windows XP
-                Tablet PC Edition or Windows XP Media Center
-                Edition system
-Inputs:         NONE
-Results:        true if the OS is Tablet PC or Media Center
-                false otherwise
-******************************************************************/
-bool IsCurrentOSTabletMedCenter()
-{
-	// Use GetSystemMetrics to detect if we are on a Tablet PC or Media Center OS  
-	return ( (GetSystemMetrics(SM_TABLETPC) != 0) || (GetSystemMetrics(SM_MEDIACENTER) != 0) );
-}
-
-
-/******************************************************************
-Function Name:  IsNetfx10Installed
-Description:    Uses the detection method recommended at
+Function Name:	IsNetfx10Installed
+Description:	Uses the detection method recommended at
                 http://msdn.microsoft.com/library/ms994349.aspx
                 to determine whether the .NET Framework 1.0 is
                 installed on the machine
-Inputs:         NONE
+Inputs:	        NONE
 Results:        true if the .NET Framework 1.0 is installed
                 false otherwise
 ******************************************************************/
@@ -446,19 +106,19 @@ bool IsNetfx10Installed()
 
 
 /******************************************************************
-Function Name:  IsNetfx11Installed
-Description:    Uses the detection method recommended at
+Function Name:	IsNetfx11Installed
+Description:	Uses the detection method recommended at
                 http://msdn.microsoft.com/library/ms994339.aspx
                 to determine whether the .NET Framework 1.1 is
                 installed on the machine
-Inputs:         NONE
+Inputs:	        NONE
 Results:        true if the .NET Framework 1.1 is installed
                 false otherwise
 ******************************************************************/
 bool IsNetfx11Installed()
 {
 	bool bRetValue = false;
-    DWORD dwRegValue=0;
+	DWORD dwRegValue=0;
 
 	if (RegistryGetValue(HKEY_LOCAL_MACHINE, g_szNetfx11RegKeyName, g_szNetfxStandardRegValueName, NULL, (LPBYTE)&dwRegValue, sizeof(DWORD)))
 	{
@@ -473,17 +133,17 @@ bool IsNetfx11Installed()
 /******************************************************************
 Function Name:	IsNetfx20Installed
 Description:	Uses the detection method recommended at
-                http://msdn2.microsoft.com/library/aa480243.aspx
+                http://msdn.microsoft.com/library/aa480243.aspx
                 to determine whether the .NET Framework 2.0 is
                 installed on the machine
-Inputs:         NONE
+Inputs:	        NONE
 Results:        true if the .NET Framework 2.0 is installed
                 false otherwise
 ******************************************************************/
 bool IsNetfx20Installed()
 {
 	bool bRetValue = false;
-    DWORD dwRegValue=0;
+	DWORD dwRegValue=0;
 
 	if (RegistryGetValue(HKEY_LOCAL_MACHINE, g_szNetfx20RegKeyName, g_szNetfxStandardRegValueName, NULL, (LPBYTE)&dwRegValue, sizeof(DWORD)))
 	{
@@ -710,15 +370,239 @@ bool IsNetfx46Installed()
 
 
 /******************************************************************
-Function Name:  RegistryGetValue
-Description:    Get the value of a reg key
-Inputs:         HKEY hk - The hk of the key to retrieve
-                TCHAR *pszKey - Name of the key to retrieve
-                TCHAR *pszValue - The value that will be retrieved
-                DWORD dwType - The type of the value that will be retrieved
-                LPBYTE data - A buffer to save the retrieved data
-                DWORD dwSize - The size of the data retrieved
-Results:        true if successful, false otherwise
+Function Name:	IsNetfx461Installed
+Description:	Uses the detection method recommended at
+                http://msdn.microsoft.com/en-us/library/ee942965(v=vs.110).aspx
+                to determine whether the .NET Framework 4.6.1 is
+                installed on the machine
+Inputs:         NONE
+Results:        true if the .NET Framework 4.6.1 is installed
+                false otherwise
+******************************************************************/
+bool IsNetfx461Installed()
+{
+	bool bRetValue = false;
+	DWORD dwRegValue=0;
+
+	if (RegistryGetValue(HKEY_LOCAL_MACHINE, g_szNetfx45RegKeyName, g_szNetfx45RegValueName, NULL, (LPBYTE)&dwRegValue, sizeof(DWORD)))
+	{
+		if (g_dwNetfx461ReleaseVersion <= dwRegValue)
+			bRetValue = true;
+	}
+
+	return bRetValue;
+}
+
+
+/******************************************************************
+Function Name:	IsNetfx462Installed
+Description:	Uses the detection method recommended at
+                http://msdn.microsoft.com/en-us/library/ee942965(v=vs.110).aspx
+                to determine whether the .NET Framework 4.6.2 is
+                installed on the machine
+Inputs:         NONE
+Results:        true if the .NET Framework 4.6.2 is installed
+                false otherwise
+******************************************************************/
+bool IsNetfx462Installed()
+{
+	bool bRetValue = false;
+	DWORD dwRegValue=0;
+
+	if (RegistryGetValue(HKEY_LOCAL_MACHINE, g_szNetfx45RegKeyName, g_szNetfx45RegValueName, NULL, (LPBYTE)&dwRegValue, sizeof(DWORD)))
+	{
+		if (g_dwNetfx462ReleaseVersion <= dwRegValue)
+			bRetValue = true;
+	}
+
+	return bRetValue;
+}
+
+
+/******************************************************************
+Function Name:	GetNetfx10SPLevel
+Description:	Uses the detection method recommended at
+                http://blogs.msdn.com/astebner/archive/2004/09/14/229802.aspx
+                to determine what service pack for the 
+                .NET Framework 1.0 is installed on the machine
+Inputs:	        NONE
+Results:        integer representing SP level for .NET Framework 1.0
+******************************************************************/
+int GetNetfx10SPLevel()
+{
+	TCHAR szRegValue[MAX_PATH];
+	TCHAR *pszSPLevel = NULL;
+	int iRetValue = -1;
+	bool bRegistryRetVal = false;
+
+	// Need to detect what OS we are running on so we know what
+	// registry key to use to look up the SP level
+	if (IsCurrentOSTabletMedCenter())
+		bRegistryRetVal = RegistryGetValue(HKEY_LOCAL_MACHINE, g_szNetfx10SPxOCMRegKeyName, g_szNetfxStandardVersionRegValueName, NULL, (LPBYTE)szRegValue, MAX_PATH);
+	else
+		bRegistryRetVal = RegistryGetValue(HKEY_LOCAL_MACHINE, g_szNetfx10SPxMSIRegKeyName, g_szNetfxStandardVersionRegValueName, NULL, (LPBYTE)szRegValue, MAX_PATH);
+
+	if (bRegistryRetVal)
+	{
+		// This registry value should be of the format
+		// #,#,#####,# where the last # is the SP level
+		// Try to parse off the last # here
+		pszSPLevel = _tcsrchr(szRegValue, _T(','));
+		if (NULL != pszSPLevel)
+		{
+			// Increment the pointer to skip the comma
+			pszSPLevel++;
+
+			// Convert the remaining value to an integer
+			iRetValue = _tstoi(pszSPLevel);
+		}
+	}
+
+	return iRetValue;
+}
+
+
+/******************************************************************
+Function Name:	GetNetfxSPLevel
+Description:	Determine what service pack is installed for a 
+                version of the .NET Framework using registry
+				based detection methods documented in the 
+				.NET Framework deployment guides.
+Inputs:         pszNetfxRegKeyName - registry key name to use for detection
+				pszNetfxRegValueName - registry value to use for detection
+Results:        integer representing SP level for .NET Framework
+******************************************************************/
+int GetNetfxSPLevel(const TCHAR *pszNetfxRegKeyName, const TCHAR *pszNetfxRegValueName)
+{
+	DWORD dwRegValue=0;
+
+	if (RegistryGetValue(HKEY_LOCAL_MACHINE, pszNetfxRegKeyName, pszNetfxRegValueName, NULL, (LPBYTE)&dwRegValue, sizeof(DWORD)))
+	{
+		return (int)dwRegValue;
+	}
+
+	// We can only get here if the .NET Framework is not
+	// installed or there was some kind of error retrieving
+	// the data from the registry
+	return -1;
+}
+
+
+/******************************************************************
+Function Name:	CheckNetfxBuildNumber
+Description:	Retrieves the .NET Framework build number from
+                the registry and validates that it is not a pre-release
+                version number
+Inputs:         NONE
+Results:        true if the build number in the registry is greater
+				than or equal to the passed in version; false otherwise
+******************************************************************/
+bool CheckNetfxBuildNumber(const TCHAR *pszNetfxRegKeyName, const TCHAR *pszNetfxRegKeyValue, const int iRequestedVersionMajor, const int iRequestedVersionMinor, const int iRequestedVersionBuild, const int iRequestedVersionRevision)
+{
+	TCHAR szRegValue[MAX_PATH];
+	TCHAR *pszToken = NULL;
+	TCHAR *pszNextToken = NULL;
+	int iVersionPartCounter = 0;
+	int iRegistryVersionMajor = 0;
+	int iRegistryVersionMinor = 0;
+	int iRegistryVersionBuild = 0;
+	int iRegistryVersionRevision = 0;
+	bool bRegistryRetVal = false;
+
+	// Attempt to retrieve the build number registry value
+	bRegistryRetVal = RegistryGetValue(HKEY_LOCAL_MACHINE, pszNetfxRegKeyName, pszNetfxRegKeyValue, NULL, (LPBYTE)szRegValue, MAX_PATH);
+
+	if (bRegistryRetVal)
+	{
+		// This registry value should be of the format
+		// #.#.#####.##.  Try to parse the 4 parts of
+		// the version here
+		pszToken = _tcstok_s(szRegValue, _T("."), &pszNextToken);
+		while (NULL != pszToken)
+		{
+			iVersionPartCounter++;
+
+			switch (iVersionPartCounter)
+			{
+			case 1:
+				// Convert the major version value to an integer
+				iRegistryVersionMajor = _tstoi(pszToken);
+				break;
+			case 2:
+				// Convert the minor version value to an integer
+				iRegistryVersionMinor = _tstoi(pszToken);
+				break;
+			case 3:
+				// Convert the build number value to an integer
+				iRegistryVersionBuild = _tstoi(pszToken);
+				break;
+			case 4:
+				// Convert the revision number value to an integer
+				iRegistryVersionRevision = _tstoi(pszToken);
+				break;
+			default:
+				break;
+
+			}
+
+			// Get the next part of the version number
+			pszToken = _tcstok_s(NULL, _T("."), &pszNextToken);
+		}
+	}
+
+	// Compare the version number retrieved from the registry with
+	// the version number of the final release of the .NET Framework
+	// that we are checking
+	if (iRegistryVersionMajor > iRequestedVersionMajor)
+	{
+		return true;
+	}
+	else if (iRegistryVersionMajor == iRequestedVersionMajor)
+	{
+		if (iRegistryVersionMinor > iRequestedVersionMinor)
+		{
+			return true;
+		}
+		else if (iRegistryVersionMinor == iRequestedVersionMinor)
+		{
+			if (iRegistryVersionBuild > iRequestedVersionBuild)
+			{
+				return true;
+			}
+			else if (iRegistryVersionBuild == iRequestedVersionBuild)
+			{
+				if (iRegistryVersionRevision >= iRequestedVersionRevision)
+				{
+					return true;
+				}
+			}
+		}
+	}
+
+	// If we get here, the version in the registry must be less than the
+	// version of the final release of the .NET Framework we are checking,
+	// so return false
+	return false;
+}
+
+
+bool IsCurrentOSTabletMedCenter()
+{
+	// Use GetSystemMetrics to detect if we are on a Tablet PC or Media Center OS  
+	return ( (GetSystemMetrics(SM_TABLETPC) != 0) || (GetSystemMetrics(SM_MEDIACENTER) != 0) );
+}
+
+
+/******************************************************************
+Function Name:	RegistryGetValue
+Description:	Get the value of a reg key
+Inputs:			HKEY hk - The hk of the key to retrieve
+				TCHAR *pszKey - Name of the key to retrieve
+				TCHAR *pszValue - The value that will be retrieved
+				DWORD dwType - The type of the value that will be retrieved
+				LPBYTE data - A buffer to save the retrieved data
+				DWORD dwSize - The size of the data retrieved
+Results:		true if successful, false otherwise
 ******************************************************************/
 bool RegistryGetValue(HKEY hk, const TCHAR * pszKey, const TCHAR * pszValue, DWORD dwType, LPBYTE data, DWORD dwSize)
 {
@@ -757,34 +641,36 @@ CString DoDetectDotNet()
 	int iNetfx451SPLevel = -1;
 	int iNetfx452SPLevel = -1;
 	int iNetfx46SPLevel = -1;
+	int iNetfx461SPLevel = -1;
+	int iNetfx462SPLevel = -1;
 	TCHAR szMessage[MAX_PATH];
 	TCHAR szOutputString[MAX_PATH*20];
 
 	// Determine whether or not the .NET Framework
-	// 1.0, 1.1, 2.0, 3.0, 3.5, 4, 4.5, 4.5.1, 4.5.2, or 4.6 are installed
-	bool bNetfx10Installed = (IsNetfx10Installed() && CheckNetfxVersionUsingMscoree(g_szNetfx10VersionString));
-	bool bNetfx11Installed = (IsNetfx11Installed() && CheckNetfxVersionUsingMscoree(g_szNetfx11VersionString));
-	bool bNetfx20Installed = (IsNetfx20Installed() && CheckNetfxVersionUsingMscoree(g_szNetfx20VersionString));
+	// 1.0, 1.1, 2.0, 3.0, 3.5, 4, 4.5, 4.5.1, 4.5.2, 4.6, 4.6.1, or 4.6.2 are installed
+	bool bNetfx10Installed = IsNetfx10Installed();
+	bool bNetfx11Installed = IsNetfx11Installed();
+	bool bNetfx20Installed = IsNetfx20Installed();
 
 	// The .NET Framework 3.0 is an add-in that installs
 	// on top of the .NET Framework 2.0.  For this version
 	// check, validate that both 2.0 and 3.0 are installed.
-	bool bNetfx30Installed = (IsNetfx20Installed() && IsNetfx30Installed() && CheckNetfxVersionUsingMscoree(g_szNetfx20VersionString));
+	bool bNetfx30Installed = (IsNetfx20Installed() && IsNetfx30Installed());
 
 	// The .NET Framework 3.5 is an add-in that installs
 	// on top of the .NET Framework 2.0 and 3.0.  For this version
 	// check, validate that 2.0, 3.0 and 3.5 are installed.
-	bool bNetfx35Installed = (IsNetfx20Installed() && IsNetfx30Installed() && IsNetfx35Installed() && CheckNetfxVersionUsingMscoree(g_szNetfx20VersionString));
+	bool bNetfx35Installed = (IsNetfx20Installed() && IsNetfx30Installed() && IsNetfx35Installed());
 
-	bool bNetfx40ClientInstalled = (IsNetfx40ClientInstalled() && CheckNetfxVersionUsingMscoree(g_szNetfx40VersionString));
-	bool bNetfx40FullInstalled = (IsNetfx40FullInstalled() && CheckNetfxVersionUsingMscoree(g_szNetfx40VersionString));
+	bool bNetfx40ClientInstalled = (IsNetfx40ClientInstalled());
+	bool bNetfx40FullInstalled = (IsNetfx40FullInstalled());
 
-	// The .NET Framework 4.5, 4.5.1, 4.5.2, and 4.6 are in-place replacements for the .NET Framework 4.
-	// They use the same runtime version as the .NET Framework 4.
-	bool bNetfx45Installed = (IsNetfx45Installed() && CheckNetfxVersionUsingMscoree(g_szNetfx40VersionString));
-	bool bNetfx451Installed = (IsNetfx451Installed() && CheckNetfxVersionUsingMscoree(g_szNetfx40VersionString));
-	bool bNetfx452Installed = (IsNetfx452Installed() && CheckNetfxVersionUsingMscoree(g_szNetfx40VersionString));
-	bool bNetfx46Installed = (IsNetfx46Installed() && CheckNetfxVersionUsingMscoree(g_szNetfx40VersionString));
+	bool bNetfx45Installed = (IsNetfx45Installed());
+	bool bNetfx451Installed = (IsNetfx451Installed());
+	bool bNetfx452Installed = (IsNetfx452Installed());
+	bool bNetfx46Installed = (IsNetfx46Installed());
+	bool bNetfx461Installed = (IsNetfx461Installed());
+	bool bNetfx462Installed = (IsNetfx462Installed());
 
 	// If .NET Framework 1.0 is installed, get the
 	// service pack level
@@ -984,7 +870,44 @@ CString DoDetectDotNet()
 		_tcscat_s(szOutputString, _T("\r\n.NET Framework 4.6 is not installed."));
 	}
 
-	CString str = szOutputString;
+	// If .NET Framework 4.6.1 is installed, get the
+	// service pack level
+	if (bNetfx461Installed)
+	{
+		iNetfx461SPLevel = GetNetfxSPLevel(g_szNetfx45RegKeyName, g_szNetfx40SPxRegValueName);
 
+		if (iNetfx461SPLevel > 0)
+			_stprintf_s(szMessage, MAX_PATH, _T("\r\n.NET Framework 4.6.1 service pack %i is installed."), iNetfx461SPLevel);
+		else
+			_stprintf_s(szMessage, MAX_PATH, _T("\r\n.NET Framework 4.6.1 is installed with no service packs."));
+
+		_tcscat_s(szOutputString, szMessage);
+	}
+	else
+	{
+		_tcscat_s(szOutputString, _T("\r\n.NET Framework 4.6.1 is not installed."));
+	}
+
+	// If .NET Framework 4.6.2 is installed, get the
+	// service pack level
+	if (bNetfx462Installed)
+	{
+		iNetfx462SPLevel = GetNetfxSPLevel(g_szNetfx45RegKeyName, g_szNetfx40SPxRegValueName);
+
+		if (iNetfx462SPLevel > 0)
+			_stprintf_s(szMessage, MAX_PATH, _T("\r\n.NET Framework 4.6.2 service pack %i is installed."), iNetfx462SPLevel);
+		else
+			_stprintf_s(szMessage, MAX_PATH, _T("\r\n.NET Framework 4.6.2 is installed with no service packs."));
+
+		_tcscat_s(szOutputString, szMessage);
+	}
+	else
+	{
+		_tcscat_s(szOutputString, _T("\r\n.NET Framework 4.6.2 is not installed."));
+	}
+
+	//MessageBox(NULL, szOutputString, _T(".NET Framework Install Info"), MB_OK | MB_ICONINFORMATION);
+  CString str = szOutputString;
 	return str;
 }
+
