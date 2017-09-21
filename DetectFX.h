@@ -1,7 +1,7 @@
 #pragma once
 
 #ifndef __AFXWIN_H__
-	#error "include 'stdafx.h' before including this file for PCH"
+#error "include 'stdafx.h' before including this file for PCH"
 #endif
 
 #include "resource.h"
@@ -9,11 +9,11 @@
 class CDetectFXApp : public CWinApp
 {
 public:
-	CDetectFXApp();
+  CDetectFXApp();
 
 public:
-	virtual BOOL InitInstance();
-	DECLARE_MESSAGE_MAP()
+  virtual BOOL InitInstance();
+  DECLARE_MESSAGE_MAP()
 };
 
 extern CDetectFXApp theApp;
